@@ -1,0 +1,99 @@
+#include <Servo.h>
+
+Servo esc;
+
+const int ESC_PIN = 9;
+
+const int MIN_THROTTLE = 1000;   // 0%
+const int MAX_THROTTLE = 2000;   // 100%
+const unsigned long RAMP_TIME = 2500;  // ms to ramp between levels
+
+int currentThrottle = MIN_THROTTLE;
+int targetThrottle = MIN_THROTTLE;
+
+int percentToMicroseconds(int percent)
+{
+  percent = constrain(percent, 0, 100);
+  return map(percent, 0, 100, MIN_THROTTLE, MAX_THROTTLE);
+}
+
+void rampTo(int target)
+{
+  int startThrottle = currentThrottle;
+  unsigned long startTime = millis();
+
+  while (millis() - startTime < RAMP_TIME)
+  {
+    unsigned long elapsed = millis() - startTime;
+    float progress = (float)elapsed / RAMP_TIME;
+
+    currentThrottle = startThrottle + (target - startThrottle) * progress;
+    esc.writeMicroseconds(currentThrottle);
+    delay(20);
+  }
+
+  currentThrottle = target;
+  esc.writeMicroseconds(currentThrottle);
+}
+
+void handleSerialInput()
+{
+  if (Serial.available())
+  {
+    String input = Serial.readStringUntil('\n');
+    input.trim();
+    input.toLowerCase();
+
+    if (input == "off")
+    {
+      targetThrottle = MIN_THROTTLE;
+      Serial.println("Turning OFF -> ramping to 0%");
+    }
+    else
+    {
+      int percent = input.toInt();
+
+      if (percent > 0 && percent <= 100)
+      {
+        targetThrottle = percentToMicroseconds(percent);
+        Serial.print("Throttle set to ");
+        Serial.print(percent);
+        Serial.println("% - will STAY ON until you type 'off' or 0");
+      }
+      else if (percent == 0)
+      {
+        targetThrottle = MIN_THROTTLE;
+        Serial.println("Turning OFF -> ramping to 0%");
+      }
+      else
+      {
+        Serial.println("Invalid. Enter 1-100 for throttle, or 'off' / 0 to stop.");
+      }
+    }
+  }
+}
+
+void setup()
+{
+  Serial.begin(9600);
+
+  esc.attach(ESC_PIN, MIN_THROTTLE, MAX_THROTTLE);
+  esc.writeMicroseconds(MIN_THROTTLE);
+
+  Serial.println("ESC ready. Type a throttle % (1-100), or 'off' to stop.");
+}
+
+void loop()
+{
+  handleSerialInput();
+
+  // Ramp toward target whenever a new command was given
+  if (currentThrottle != targetThrottle)
+  {
+    rampTo(targetThrottle);
+  }
+
+  // Keep the ESC signal alive at the current throttle — runs forever
+  esc.writeMicroseconds(currentThrottle);
+  delay(20);
+}
